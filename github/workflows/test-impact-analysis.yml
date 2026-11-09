@@ -1,0 +1,43 @@
+name: Test impact analysis
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+
+jobs:
+  test-impact:
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]'
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Analyze test impact
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MABL_API_KEY: ${{ secrets.MABL_API_KEY }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          APPLICATION_ID: ${{ vars.MABL_APPLICATION_ID }}
+        run: |
+          npm install -g @mablhq/mabl-cli
+          mabl auth activate-key "$MABL_API_KEY"
+
+          {
+            echo "Title: $(gh pr view "$PR_URL" --json title --jq .title)"
+            echo
+            gh pr view "$PR_URL" --json body --jq .body
+          } > change.md
+
+          mabl tests impact \
+            --application-id "$APPLICATION_ID" \
+            --change-description-file change.md \
+            --output json > impact.json
+
+          jq -r '
+            "## Test impact analysis (advisory)\n\nImpacted: \(.tests | length) · Coverage gaps: \(.coverage_gaps | length)\n"
+            + (if (.tests | length) > 0 then "\n**Impacted**\n" + ([.tests[] | "- " + .test_name + " — " + .context] | join("\n")) else "" end)
+            + (if (.coverage_gaps | length) > 0 then "\n\n**Coverage gaps**\n" + ([.coverage_gaps[] | "- " + .] | join("\n")) else "" end)
+          ' impact.json > impact.md
+
+          gh pr comment "$PR_URL" --body-file impact.md
