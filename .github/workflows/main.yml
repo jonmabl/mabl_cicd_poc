@@ -1,0 +1,30 @@
+name: Test impact analysis (manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      change_description:
+        description: 'Describe the change in product terms'
+        required: true
+        default: 'Updated the README with a test change.'
+
+jobs:
+  test-impact:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Analyze test impact
+        env:
+          MABL_API_KEY: ${{ secrets.MABL_API_KEY }}
+          APPLICATION_ID: ${{ vars.MABL_APPLICATION_ID }}
+          CHANGE: ${{ inputs.change_description }}
+        run: |
+          npm install -g @mablhq/mabl-cli
+          mabl auth activate-key "$MABL_API_KEY"
+          echo "$CHANGE" > change.md
+          mabl tests impact \
+            --application-id "$APPLICATION_ID" \
+            --change-description-file change.md \
+            --output markdown | tee impact.md
+          cat impact.md >> "$GITHUB_STEP_SUMMARY"
